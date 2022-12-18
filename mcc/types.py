@@ -65,7 +65,7 @@ class UnsignedShort(Type):
         return stream.write(struct.pack('>H', value))
 
 
-class Integer(Type):
+class Int(Type):
     @staticmethod
     def read(stream):
         return struct.unpack('>i', stream.read(4))[0]
@@ -78,11 +78,11 @@ class Integer(Type):
 class FixedPointInteger(Type):
     @staticmethod
     def read(stream):
-        return Integer.read(stream) / 32
+        return Int.read(stream) / 32
 
     @staticmethod
     def write(value, stream):
-        return Integer.write(int(value * 32), stream)
+        return Int.write(int(value * 32), stream)
 
 
 class VarInt(Type):

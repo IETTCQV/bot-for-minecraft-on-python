@@ -18,7 +18,7 @@ func_name = {
 	'Byte': Byte,
 	'Short': Short,
 	'UnsignedShort': UnsignedShort,
-	'Integer': Integer,
+	'Int': Int,
 	'FixedPointInteger': FixedPointInteger,
 	'VarInt': VarInt,
 	'Long': Long,
@@ -40,7 +40,7 @@ func_type = {
 	'Byte': int,
 	'Short': int,
 	'UnsignedShort': int,
-	'Integer': int,
+	'Int': int,
 	'FixedPointInteger': int,
 	'VarInt': int,
 	'Long': int,
@@ -299,7 +299,7 @@ class Main:
 					Player.Z = Double.read(buffer)
 					Player.Pitch = 1 / UnsignedByte.read(buffer)
 					Player.Yaw = 1 / UnsignedByte.read(buffer)
-					Player.Data = Integer.read(buffer)
+					Player.Data = Int.read(buffer)
 					Player.VelocityX = Short.read(buffer)
 					Player.VelocityY = Short.read(buffer)
 					Player.VelocityZ = Short.read(buffer)
