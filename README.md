@@ -1,2 +1,3 @@
-# bot for minecraft on python
+# Бот для майнкрафта на питоне
  
+разрабатывается на версии 1.18.2 [по протоколу с вики](https://wiki.vg/index.php?title=Protocol&oldid=17499)
