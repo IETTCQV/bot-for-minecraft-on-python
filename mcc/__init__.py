@@ -1,60 +1,19 @@
-from . import types, colorama
-from .types import *
+
 from .buffer import PacketBuffer
+from .tables import *
 
 from socket import socket as Socket, AF_INET, SOCK_STREAM, timeout
+from colorama import just_fix_windows_console
 from threading import Thread
 from time import sleep, time
-import struct
 
+import struct
 import zlib
 import json
 import yaml
 import os
 
-func_name = {
-	'Boolean': Boolean,
-	'UnsignedByte': UnsignedByte,
-	'Byte': Byte,
-	'Short': Short,
-	'UnsignedShort': UnsignedShort,
-	'Int': Int,
-	'FixedPointInteger': FixedPointInteger,
-	'VarInt': VarInt,
-	'Long': Long,
-	'UnsignedLong': UnsignedLong,
-	'Float': Float,
-	'Double': Double,
-	'VarIntArray': VarIntArray,
-	'ShortPrefixedByteArray': ShortPrefixedByteArray,
-	'VarIntPrefixedByteArray': VarIntPrefixedByteArray,
-	'TrailingByteArray': TrailingByteArray,
-	'String': String,
-	'Json': Json,
-	'UUID': UUID
-}
-
-func_type = {
-	'Boolean': bool,
-	'UnsignedByte': int,
-	'Byte': int,
-	'Short': int,
-	'UnsignedShort': int,
-	'Int': int,
-	'FixedPointInteger': int,
-	'VarInt': int,
-	'Long': int,
-	'UnsignedLong': int,
-	'Float': float,
-	'Double': float,
-	'VarIntArray': str,
-	'ShortPrefixedByteArray': str,
-	'VarIntPrefixedByteArray': str,
-	'TrailingByteArray': str,
-	'String': str,
-	'Json': str,
-	'UUID': str
-}
+just_fix_windows_console()
 
 def PACK(buffer, num=None):
 	data = buffer.bytes
@@ -117,7 +76,7 @@ class Main:
 			if not line:
 				continue
 
-			name, value = line.split(' ')
+			name, value = line.split(' ', 1)
 			name.replace(' ', '')
 			if value[0] == '%':
 				value = self.data[value[1:]]
@@ -138,7 +97,6 @@ class Main:
 
 		if not data:
 			raise Exception('Сервер перестал отвечать')
-			# data = b'\x00'
 
 		buffer = PacketBuffer(data)
 		buffer.seek(0)
@@ -186,12 +144,6 @@ class Main:
 		data = Json.read(buffer)
 		print(yaml.dump(data))
 
-		'''
-		# zlib.decompress
-		# b'\xb3\x01\x00\xb0\x01{"description":{"text":""},"players":{"max":10,"online":1,"sample":[{"id":"09c06d59-947a-3bc5-9b2c-c1089c369248","name":"IvanExe"}]},"version":{"name":"1.18.2","protocol":758}}'
-		# print(packet_length, data_length, buffer.read())
-		'''
-
 		self.reconnect(addr)
 
 		# Handshake
@@ -216,81 +168,41 @@ class Main:
 
 		print('Вход выполнен')
 		self.State = 'play'
-		# https://wiki.vg/index.php?title=Protocol&oldid=17499#Keep_Alive_.28clientbound.29
-		# https://wiki.vg/index.php?title=Protocol&oldid=17499#Keep_Alive_.28serverbound.29
 
-		# Thread(target=self.recv,daemon=True).start()
 		Thread(target=self.main,daemon=True).start()
-		# Thread(target=self.main,daemon=True).start()
 
 	# https://wiki.vg/index.php?title=Protocol&oldid=17499
 	# https://wiki.vg/index.php?title=Protocol&oldid=17499#Death_Combat_Event
 	# https://wiki.vg/index.php?title=Protocol&oldid=17499#Respawn
-	def recv(self):
-		while self.active:
-			try:
-				buffer = self.recv_raw()
-				self.buffer.append(buffer)
-
-			except timeout:
-				continue
-
-			except Exception as e:
-				self.active = False
-				raise e
 
 	def main(self):
-		x = time()
+		# x = time()
 		while self.active:
-			# print('Буффер:', len(self.buffer))
-			if time() - x >= 0.2:
-				# x = time()
-				self.send(0x14, 'Boolean True')
+			# if time() - x >= 0.2:
+			# 	# x = time()
+			# 	self.send(0x14, 'Boolean True')
 
 			try:
-				# if len(self.buffer) == 0:
-				# 	continue
-				# buffer = self.buffer.pop(0)
 				buffer = self.recv_raw()
 
 				PacketLength = VarInt.read(buffer)
 				DataLength = VarInt.read(buffer)
 
 				if DataLength > 0:
-					# print(PacketLength, 'СЖАТ')
 					# continue
 					data = zlib.decompress(buffer.read())
 					buffer = PacketBuffer(data)
 					buffer.seek(0)
 
 				PacketID = VarInt.read(buffer)
-				# print(PacketLength, DataLength, PacketID, buffer.bytes)
 				if PacketID == 0x21:
-					# 89 = Time Update
-					# 41 = Entity Position
-					# 33 = Keep Alive !!!
-
+					# https://wiki.vg/index.php?title=Protocol&oldid=17499#Keep_Alive_.28clientbound.29
+					# https://wiki.vg/index.php?title=Protocol&oldid=17499#Keep_Alive_.28serverbound.29
 					KeepAliveID = Long.read(buffer)
 					self.send_raw(0x0F, (Long, KeepAliveID))
-					print('keep Alive ID:', KeepAliveID)
+					# print('keep Alive ID:', KeepAliveID)
 
 				elif PacketID == 0x00:
-					'''
-					0x00
-					Entity ID		VarInt		Entity ID.
-					Object UUID		UUID	
-					Type			VarInt		The type of entity (same as in Spawn Living Entity).
-					X				Double	
-					Y				Double	
-					Z				Double	
-					Pitch			Angle		To get the real pitch, you must divide this by (256.0F / 360.0F)
-					Yaw				Angle		To get the real yaw, you must divide this by (256.0F / 360.0F)
-					Data			Int			Meaning dependent on the value of the Type field, see Object Data for details.
-					Velocity X		Short		Same units as Entity Velocity. Always sent, but only used when Data is greater than 0 (except for some entities which always ignore it; see Object Data for details).
-					Velocity Y		Short
-					Velocity Z		Short
-					'''
-
 					Player.EntityID = VarInt.read(buffer)
 					Player.UUID = UUID.read(buffer)
 					Player.Type = VarInt.read(buffer)
@@ -306,17 +218,6 @@ class Main:
 					print('0x00 данные получены!')
 
 				elif PacketID == 0x04:
-					'''
-					0x04
-					EntityID		VarInt		Player's EID.
-					PlayerUUID		UUID		See below for notes on offline mode and NPCs.
-					X				Double	
-					Y				Double	
-					Z				Double	
-					Yaw				Angle	
-					Pitch			Angle
-					'''
-
 					Player.EntityID = VarInt.read(buffer)
 					Player.UUID = UUID.read(buffer)
 					Player.X = Double.read(buffer)
@@ -325,6 +226,36 @@ class Main:
 					Player.Pitch = 1 / UnsignedByte.read(buffer)
 					Player.Yaw = 1 / UnsignedByte.read(buffer)
 					print('0x04 данные получены!')
+
+				elif PacketID == 0x0F:
+					data = Json.read(buffer)
+					_type = Byte.read(buffer)
+					sender = UUID.read(buffer)
+					# print(sender)
+					# print(yaml.dump(data))
+
+					if _type == 0:
+						name = data['with'][0]['text']
+						text = data['with'][1]
+						print(f'<{name}> {text}')
+
+					if _type == 1:
+						if 'with' in data:
+							if data['with'][0]['text'] == 'Server':
+								text = data['with'][1]['text']
+								print(f'[Server] {text}')
+							else:
+								print(data['with'][0]['text'])
+						elif 'extra' in data:
+							for line in data['extra']:
+								if 'color' in line and line['color'] in color_name:
+									color = color_name[line['color']]
+								else:
+									color = ''
+								print(color + line['text'] + Fore.RESET, end='')
+							print('')
+						else:
+							print(yaml.dump(data))
 
 				elif PacketID == 0x1A:
 					data = Json.read(buffer)
@@ -347,45 +278,3 @@ class Main:
 				print('ОШИБКА:', e)
 				print(type(e))
 				self.active = False
-
-	# def send(self, buffer, packid):
-	# 	# zlib.compress()
-	# 	PACK(buffer)
-	# 	buffer.seek(0)
-	# 	types.VarInt.write(packid,buffer)
-	# 	PACK(buffer,0)
-	# 	PACK(buffer)
-	# 	self.socket.sendall(buffer.bytes)
-
-	# def recv(self):
-	# 	while True:
-	# 		try:
-	# 			data = self.socket.recv(1024*128)
-	# 		except ConnectionAbortedError:
-	# 			self.run = False
-	# 			raise Exception('Соединение разорвано')
-	# 		if not data:
-	# 			self.run = False
-	# 			raise Exception('Сервер перестал отвечать')
-
-	# 		buffer = PacketBuffer(data)
-	# 		buffer.seek(0)
-	# 		size = types.VarInt.read(buffer)
-	# 		max_size = types.VarInt.read(buffer)
-	# 		if max_size == 0:
-	# 			packid = types.VarInt.read(buffer)
-	# 			if packid == 0x0E:
-	# 				data = types.Json.read(buffer)
-	# 				byte = buffer.read(1)
-	# 				uuid = types.UUID.read(buffer)
-	# 				if self.listen_chat != None:
-	# 					self.listen_chat(data,byte,uuid)
-
-	# 			if packid == 0x1F:
-	# 				KA = types.Long.read(buffer)
-	# 				# print(f'Сохранение соединения: {KA}')
-	# 				buffer = PacketBuffer()
-	# 				types.Long.write(KA,buffer)
-	# 				self.send(buffer,0x10)
-	# 		else:
-	# 			pass
