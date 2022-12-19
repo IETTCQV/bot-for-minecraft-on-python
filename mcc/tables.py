@@ -1,5 +1,6 @@
 from colorama import Fore
 from .types import *
+from .packets import *
 
 color_name = {
 	'black': Fore.BLACK, 
