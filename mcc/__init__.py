@@ -88,20 +88,6 @@ class Main:
 			args.append((func, value))
 		self.send_raw(packid, *args)
 
-	def recv_raw(self):
-		try:
-			# max 2097151 bytes
-			data = self.socket.recv(1024**2*2)
-		except ConnectionAbortedError:
-			raise Exception('Соединение разорвано')
-
-		if not data:
-			raise Exception('Сервер перестал отвечать')
-
-		buffer = PacketBuffer(data)
-		buffer.seek(0)
-		return buffer
-
 	def read_uncompressed(self, buffer):
 		length = VarInt.read(buffer)
 		id = VarInt.read(buffer)
@@ -169,21 +155,47 @@ class Main:
 		print('Вход выполнен')
 		self.State = 'play'
 
+		Thread(target=self.recv,daemon=True).start()
 		Thread(target=self.main,daemon=True).start()
 
 	# https://wiki.vg/index.php?title=Protocol&oldid=17499
 	# https://wiki.vg/index.php?title=Protocol&oldid=17499#Death_Combat_Event
 	# https://wiki.vg/index.php?title=Protocol&oldid=17499#Respawn
 
-	def main(self):
-		# x = time()
-		while self.active:
-			# if time() - x >= 0.2:
-			# 	# x = time()
-			# 	self.send(0x14, 'Boolean True')
+	def recv_raw(self):
+		try:
+			# max 2097151 bytes
+			data = self.socket.recv(1024**2*2)
+		except ConnectionAbortedError:
+			raise Exception('Соединение разорвано')
 
+		if not data:
+			raise Exception('Сервер перестал отвечать')
+
+		buffer = PacketBuffer(data)
+		buffer.seek(0)
+		return buffer
+
+	def recv(self):
+		while self.active:
 			try:
 				buffer = self.recv_raw()
+			except timeout:
+				pass
+			except Exception as e:
+				self.active = False
+				raise e
+			else:
+				self.buffer.append(buffer)
+				# print(len(self.buffer))
+
+	def main(self):
+		while self.active:
+			try:
+				while len(self.buffer) < 1:
+					sleep(1 / 100)
+				
+				buffer = self.buffer.pop(0)
 
 				PacketLength = VarInt.read(buffer)
 				DataLength = VarInt.read(buffer)
@@ -223,6 +235,9 @@ class Main:
 					Player.X = Double.read(buffer)
 					Player.Y = Double.read(buffer)
 					Player.Z = Double.read(buffer)
+					
+					print('XYZ', Player.X, Player.Y, Player.Z)
+
 					Player.Pitch = 1 / UnsignedByte.read(buffer)
 					Player.Yaw = 1 / UnsignedByte.read(buffer)
 					print('0x04 данные получены!')
@@ -271,10 +286,7 @@ class Main:
 
 			# except (ValueError, timeout, struct.error):
 			# 	continue
-			except timeout:
-				pass
 
 			except Exception as e:
-				print('ОШИБКА:', e)
-				print(type(e))
 				self.active = False
+				raise e
