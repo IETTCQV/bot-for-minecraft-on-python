@@ -24,15 +24,15 @@ def PACK(buffer, num=None):
 def UNPACK(buffer):
 	return VarInt.read(buffer)
 
-class Player:
+class player:
 	EntityID = None
 	UUID = None
 	Type = None
-	X = None
-	Y = None
-	Z = None
-	Pitch = None
-	Yaw = None
+	x = None
+	y = None
+	z = None
+	pitch = None
+	yaw = None
 	Data = None
 	VelocityX = None
 	VelocityY = None
@@ -93,6 +93,23 @@ class Main:
 		id = VarInt.read(buffer)
 		return length, id
 
+	def read(self, buffer, text):
+		res = []
+		for name in text.split(' '):
+			count = 1
+			if '%' in name:
+				count, name = name.split('%')
+				count = int(count)
+
+			if name not in func_name:
+				continue
+
+			func = func_name[name]
+
+			for _ in range(count):
+				res.append(func.read(buffer))
+		return res
+
 	def reconnect(self, addr):
 		self.socket.close()
 
@@ -150,13 +167,15 @@ class Main:
 		buffer = self.recv_raw()
 		# print(buffer.bytes)
 		PacketLength, PacketID = self.read_uncompressed(buffer)
-		Player.UUID = UUID.read(buffer)
+		player.UUID = UUID.read(buffer)
 
 		print('Вход выполнен')
 		self.State = 'play'
 
 		Thread(target=self.recv,daemon=True).start()
 		Thread(target=self.main,daemon=True).start()
+		sleep(0.5)
+		Thread(target=self.update,daemon=True).start()
 
 	# https://wiki.vg/index.php?title=Protocol&oldid=17499
 	# https://wiki.vg/index.php?title=Protocol&oldid=17499#Death_Combat_Event
@@ -175,6 +194,11 @@ class Main:
 		buffer = PacketBuffer(data)
 		buffer.seek(0)
 		return buffer
+
+	def update(self):
+		while self.active:
+			self.send(0x14, 'Boolean True')
+			sleep(1/20)
 
 	def recv(self):
 		while self.active:
@@ -214,6 +238,7 @@ class Main:
 					self.send_raw(0x0F, (Long, KeepAliveID))
 					# print('keep Alive ID:', KeepAliveID)
 
+					'''
 				elif PacketID == 0x00:
 					Player.EntityID = VarInt.read(buffer)
 					Player.UUID = UUID.read(buffer)
@@ -235,12 +260,13 @@ class Main:
 					Player.X = Double.read(buffer)
 					Player.Y = Double.read(buffer)
 					Player.Z = Double.read(buffer)
-					
-					print('XYZ', Player.X, Player.Y, Player.Z)
+
+					# print('XYZ', Player.X, Player.Y, Player.Z)
 
 					Player.Pitch = 1 / UnsignedByte.read(buffer)
 					Player.Yaw = 1 / UnsignedByte.read(buffer)
 					print('0x04 данные получены!')
+				'''
 
 				elif PacketID == 0x0F:
 					data = Json.read(buffer)
@@ -256,19 +282,38 @@ class Main:
 
 					if _type == 1:
 						if 'with' in data:
-							if data['with'][0]['text'] == 'Server':
-								text = data['with'][1]['text']
-								print(f'[Server] {text}')
-							else:
-								print(data['with'][0]['text'])
-						elif 'extra' in data:
-							for line in data['extra']:
-								if 'color' in line and line['color'] in color_name:
-									color = color_name[line['color']]
+							try:
+								if data['with'][0]['text'] == 'Server':
+									text = data['with'][1]['text']
+									print(f'[Server] {text}')
 								else:
+									print(data['with'][0]['text'])
+							except:
+								print(yaml.dump(data))
+
+						elif 'extra' in data:
+							if 'color' in data and data['color'] in color_name:
+								print(color_name[data['color']], end='')
+
+							try:
+								for line in data['extra']:
 									color = ''
-								print(color + line['text'] + Fore.RESET, end='')
-							print('')
+									if 'color' in line and line['color'] in color_name:
+										color = color_name[line['color']]
+									
+									text = ''
+									if 'text' in line:
+										text = line['text']
+
+									elif 'translate' in line:
+										name = data['extra'][0]['translate']
+										if name == 'command.unknown.command':
+											text = 'неизвестная команда'
+
+									print(color + text + Fore.RESET, end='')
+								print('')
+							except:
+								print(yaml.dump(data))
 						else:
 							print(yaml.dump(data))
 
@@ -278,6 +323,13 @@ class Main:
 
 				elif PacketID == 0x35 or PacketID == 0x3D:
 					self.send_raw(0x04, (VarInt, 0)) # Respawn
+
+				elif PacketID == 0x38:
+					print('0x38 данные получены!')
+					p = player
+					p.x , p.y, p.z, p.yaw, p.pitch, p.flags, p.tpid = self.read(buffer, R'3%Double 2%Float Byte VarInt')
+
+					self.send(0x00, f'VarInt {p.tpid}')
 
 				elif PacketID == 0x52: # Update Health
 					Health = Float.read(buffer)
