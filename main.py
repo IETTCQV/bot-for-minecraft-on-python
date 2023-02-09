@@ -23,18 +23,10 @@ while main.active:
 
 		elif msg == 'з' and player.x != None:
 			player.y += 1
-
-			main.send(0x12, f'''
-				Double {player.x}
-				Double {player.y}
-				Double {player.z}
-				Float {player.yaw}
-				Float {player.pitch}
-				Boolean True
-			''')
+			main.send(0x12, player.x, player.y, player.z, player.yaw, player.pitch, True)
 
 	else:
-		main.send(0x03, f'String {msg}')
+		main.send(0x03, msg)
 
 	# https://wiki.vg/Chat#Processing_chat
 	# https://wiki.vg/index.php?title=Protocol&oldid=17499#Chat_Message_.28serverbound.29
