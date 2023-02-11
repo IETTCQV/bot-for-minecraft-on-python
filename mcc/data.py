@@ -6,6 +6,7 @@ class Buffer:
 		self.bytes_ = BytesIO()
 		if data is not None:
 			self.bytes_.write(data)
+			self.seek(0)
 
 	def write(self, value):
 		return self.bytes_.write(value)
