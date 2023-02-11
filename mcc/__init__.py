@@ -16,13 +16,6 @@ import os
 
 just_fix_windows_console()
 
-def PACK(buffer, num=None):
-	buffer.seek(0)
-	VarInt.write(len(buffer.bytes) if num is None else num, buffer)
-
-def UNPACK(buffer):
-	return VarInt.read(buffer)
-
 class player:
 	EntityID = None
 	UUID = None
@@ -52,12 +45,15 @@ class Main:
 		self.listen_chat = None
 
 	def send_raw(self, packid, buffer, state='play'):
-		PACK(buffer)
-		buffer.seek(0)
-		VarInt.write(packid, buffer)
-		if state == 'play' and self.threshold >= 0:
-			PACK(buffer, 0)
-		PACK(buffer)
+		buffer.pack(VarInt, packid)
+
+		if state == 'play':
+			if self.threshold >= 0 and len(buffer) >= self.threshold:
+				raise Exception('способ сжатия ещё не написан')
+			else:
+				buffer.pack(VarInt, 0)
+		buffer.pack(VarInt, len(buffer))
+
 		self.socket.send(buffer.bytes)
 
 	def send(self, _id, *args, state='play'):
@@ -66,23 +62,27 @@ class Main:
 		else:
 			self.send_raw(_id, to_buffer(_id, list(args), state=state), state=state)
 
-	def read_uncompressed(self, buffer):
-		length = VarInt.read(buffer)
-		id = VarInt.read(buffer)
-		return length, id
-
-	def read(self, buffer, state='play'):
+	def read(self, buffer):
 		res = []
-		res.append(VarInt.read(buffer))                           # 0 Размер пакета
-		res.append(VarInt.read(buffer) if state == 'play' else 0) # 1 Размер данных
+		res.append(VarInt.read(buffer))         # 0 Размер пакета
+		res.append(VarInt.read(buffer))         # 1 Размер данных
 
 		if res[1] > 0:
-			data = zlib.decompress(buffer.read())
+			data = buffer.read()
+			# print(buffer.bytes)
+			# print(data)
+			data = zlib.decompress(data)
 			buffer = Buffer(data)
 			buffer.seek(0)
 
-		res.append(VarInt.read(buffer))                           # 2 ID пакета
-		res.append(from_buffer(res[2], buffer, state=state))      # 3 Список с данными
+		res.append(VarInt.read(buffer))         # 2 ID пакета
+
+		if res[2] not in dataformat['recv']:
+			res[2] = None
+			res.append([])
+			# raise Exception(f'пакет {res[2]} не записан в recv/')
+		else:
+			res.append(from_buffer(res[2], buffer)) # 3 Список с данными
 		res.pop(1)
 		return res
 
@@ -107,32 +107,43 @@ class Main:
 		except ConnectionRefusedError:
 			raise SystemExit('Сервер не доступен')
 
-		# отправляем запрос о статусе
-		self.send(0x00, self.version['1.18.2'], addr[0], addr[1], 1, state='login')
-		self.send(0x00, state='tostatus')
+		# # отправляем запрос о статусе
+		# self.send(0x00, self.version['1.18.2'], addr[0], addr[1], 1, state='handshake')
+		# self.send(0x00, state='status')
 
-		# получаем данные содержащие статус
-		buffer = self.recv_raw()
-		size, _id, data = self.read(buffer, state='status') # получаем 0x00 пакет
-		if _id == 0x1A:
-			print(yaml.dump(data[0]))
-			exit()
+		# # получаем данные содержащие статус
+		# buffer = self.recv_raw()
+		# size, id, data = self.read(buffer, state='status') # получаем 0x00 пакет
+		# if id in [0x00, 0x1A]:
+		# 	print(yaml.dump(data[0]))
+		# 	exit()
 
-		self.reconnect(addr)
+		# self.reconnect(addr)
 
 		# Handshake
 		# отправляем запрос на подключение
-		self.send(0x00, self.version['1.18.2'], addr[0], addr[1], 2, state='login')
-		self.send(0x00, username, state='tologin')
+		self.send(0x00, self.version['1.18.2'], addr[0], addr[1], 2, state='handshake')
+		self.send(0x00, username, state='login')
 		
+		# получаем 0x03 пакет
 		buffer = self.recv_raw()
-		size, _id, data = self.read(buffer, state='login') # получаем 0x03 пакет
-		self.threshold = data[0]
+		length = VarInt.read(buffer)
+		id = VarInt.read(buffer)
 
-		# https://wiki.vg/Protocol#Login_Success
+		if id == 0x03:
+			self.threshold = VarInt.read(buffer)
+
+		# if id in [0x00, 0x1A]:
+		# 	print(yaml.dump(data[0]))
+		# 	exit()
+
+		# получаем 0x02 пакет
 		buffer = self.recv_raw()
-		size, _id, data = self.read(buffer, state='login') # получаем 0x02 пакет
-		player.UUID = data[0]
+		length = VarInt.read(buffer)
+		id = VarInt.read(buffer)
+
+		if id == 0x02:
+			player.UUID = UUID.read(buffer)
 
 		print('Вход выполнен')
 
@@ -147,8 +158,9 @@ class Main:
 
 	def recv_raw(self):
 		try:
-			# max 2097151 bytes
+			# max 2097151 bytes 1024**2*2
 			data = self.socket.recv(1024**2*2)
+			# print(data)
 		except ConnectionAbortedError:
 			raise Exception('Соединение разорвано')
 
@@ -161,8 +173,8 @@ class Main:
 
 	def update(self):
 		while self.active:
-			self.send(0x14, 'Boolean True')
-			sleep(1/20)
+			self.send(0x14, True)
+			sleep(1)
 
 	def recv(self):
 		while self.active:
@@ -180,22 +192,12 @@ class Main:
 		while self.active:
 			try:
 				buffer = self.queue.get()
+				length, id, data = self.read(buffer)
 
-				PacketLength = VarInt.read(buffer)
-				DataLength = VarInt.read(buffer)
-
-				if DataLength > 0:
-					# continue
-					data = zlib.decompress(buffer.read())
-					buffer = Buffer(data)
-					buffer.seek(0)
-
-				PacketID = VarInt.read(buffer)
-				if PacketID == 0x21:
+				if id == 0x21:
 					# https://wiki.vg/index.php?title=Protocol&oldid=17499#Keep_Alive_.28clientbound.29
 					# https://wiki.vg/index.php?title=Protocol&oldid=17499#Keep_Alive_.28serverbound.29
-					KeepAliveID = Long.read(buffer)
-					self.send(0x0F, KeepAliveID)
+					self.send(0x0F, data[0])
 					# print('keep Alive ID:', KeepAliveID)
 
 				# elif PacketID == 0x00:
@@ -275,31 +277,31 @@ class Main:
 				# 		else:
 				# 			print(yaml.dump(data))
 
-				elif PacketID == 0x1A:
-					data = Json.read(buffer)
-					print(data['translate'])
+				elif id == 0x1A:
+					print(data[0]['translate'])
 
-				elif PacketID == 0x35 or PacketID == 0x3D:
-					self.send(0x04, 0) # Respawn
+				elif id in [0x35, 0x3D]:
+					# 0x35 - экран смерти, ID себя (VarInt), ID моба (Int), сообщение (Json)
+					# 0x3D - данные для возраждения
+					self.send(0x04, 0) # пакет для возраждения
 
-				elif PacketID == 0x38:
+				elif id == 0x38:
 					print('0x38 данные получены!')
 					p = player
-					p.x , p.y, p.z, p.yaw, p.pitch, p.flags, p.tpid = self.read(buffer, R'3%Double 2%Float Byte VarInt')
-					# p.x , p.y, p.z, p.yaw, p.pitch, p.flags, p.tpid = from_buffer(0x38, buffer)
+					p.x, p.y, p.z, p.yaw, p.pitch, p.flags, p.tpid = data
 
 					self.send(0x00, p.tpid)
 
-				elif PacketID == 0x52: # Update Health
-					Health = Float.read(buffer)
-					if Health == 0:
+				elif id == 0x52: # Update Health
+					if data[0] == 0:
 						self.send(0x04, 0) # Respawn
 
 			# except (ValueError, timeout, struct.error):
 			# 	continue
 
 			except Exception as e:
-				self.active = False
-				raise e
+				# self.active = False
+				# raise e
+				print(e)
 
 			self.queue.task_done()

@@ -25,6 +25,12 @@ class Buffer:
 		else:
 			self.bytes_.seek(index)
 
+	def pack(self, func, value):
+		data = self.bytes
+		self.clear()
+		func.write(value, self)
+		self.write(data)
+
 	def __len__(self):
 		return len(self.bytes)
 
@@ -98,9 +104,17 @@ def to_buffer(_id, args, state='play'):
 	# 		args.append((func, value))
 	# 	self.send_raw(packid, *args)
 
-def from_buffer(_id, buffer, state='play'):
-	levelformat = dataformat['recv'][state]
-	return [func.read(buffer) for func in levelformat[_id]]
+def from_buffer(id, buffer):
+	levelformat = dataformat['recv']
+	res = []
+	for func in levelformat[id]:
+		try:
+			res.append(func.read(buffer))
+		except Exception as e:
+			print(buffer.bytes)
+			print(hex(id), func)
+			raise e
+	return res
 
 	# def read_uncompressed(self, buffer):
 	# 	length = VarInt.read(buffer)

@@ -1,6 +1,6 @@
 from mcc import *
 
-addr = ('localhost', 25565)
+addr = ('fonih.aternos.me', 56943)
 username = 'Bot'
 
 main = Main()
@@ -19,7 +19,7 @@ while main.active:
 			exit()
 
 		elif msg == 'к':
-			main.send_raw(0x04, (VarInt, 0)) # respawn
+			main.send(0x04, 0) # respawn
 
 		elif msg == 'з' and player.x != None:
 			player.y += 1
