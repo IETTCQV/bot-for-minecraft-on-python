@@ -15,13 +15,13 @@ while main.active:
 	elif msg.startswith('\\'):
 		msg = msg[1:]
 
-		if msg == 'выход':
+		if msg == 'exit':
 			exit()
 
-		elif msg == 'к':
+		elif msg == 'r':
 			main.send(0x04, 0) # respawn
 
-		elif msg == 'з' and player.x != None:
+		elif msg == 'p' and player.x != None:
 			player.y += 1
 			main.send(0x12, player.x, player.y, player.z, player.yaw, player.pitch, True)
 

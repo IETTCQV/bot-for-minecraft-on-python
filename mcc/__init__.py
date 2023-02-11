@@ -1,5 +1,5 @@
 
-from .data import Buffer, Packet, to_buffer, from_buffer
+from .data import *
 from .tables import *
 
 from socket import socket as Socket, AF_INET, SOCK_STREAM, timeout
@@ -57,40 +57,39 @@ class Main:
 		self.socket.send(buffer.bytes)
 
 	def send(self, _id, *args, state='play'):
-		if type(_id) == Packet:
-			self.send_raw(packet.id, packet.to_buffer(state=state), state=state)
-		else:
-			self.send_raw(_id, to_buffer(_id, list(args), state=state), state=state)
+		self.send_raw(_id, to_buffer(_id, list(args), state=state), state=state)
 
 	def read(self, buffer):
-		res = []
-		res.append(VarInt.read(buffer))         # 0 Размер пакета
-		res.append(VarInt.read(buffer))         # 1 Размер данных
-
-		if res[1] > 0:
-			data = buffer.read()
-			# print(buffer.bytes)
-			# print(data)
+		data_lenght = VarInt.read(buffer)
+     
+		if data_lenght > 0:
+			data = buffer.read(data_lenght)
+			# player.all_data = buffer.bytes
+			# player.end_data = data
 			data = zlib.decompress(data)
 			buffer = Buffer(data)
 			buffer.seek(0)
 
-		res.append(VarInt.read(buffer))         # 2 ID пакета
+		id = VarInt.read(buffer)
+		if id > 0x67:
+			print(id, 'ERROR')
+			return [None, []]
+		# print(hex(id))
 
-		if res[2] not in dataformat['recv']:
-			res[2] = None
-			res.append([])
+		# 0 Размер пакета
+		# 1 ID пакета
+		# 2 Список с данными
+		if id in dataformat['recv']:
 			# raise Exception(f'пакет {res[2]} не записан в recv/')
+			return [id, from_buffer(id, buffer)]
 		else:
-			res.append(from_buffer(res[2], buffer)) # 3 Список с данными
-		res.pop(1)
-		return res
+			return [None, []]
 
 	def reconnect(self, addr):
 		self.socket.close()
 
 		self.socket = Socket(AF_INET, SOCK_STREAM)
-		self.socket.settimeout(1)
+		self.socket.settimeout(20)
 
 		self.socket.connect(addr)
 
@@ -126,27 +125,34 @@ class Main:
 		self.send(0x00, username, state='login')
 		
 		# получаем 0x03 пакет
-		buffer = self.recv_raw()
-		length = VarInt.read(buffer)
+		buffer = Buffer(self.socket.recv(1024))
 		id = VarInt.read(buffer)
 
 		if id == 0x03:
 			self.threshold = VarInt.read(buffer)
+		else:
+			print(hex(id), 'другой пакет (ожидался 0x03)')
+			exit()
 
 		# if id in [0x00, 0x1A]:
 		# 	print(yaml.dump(data[0]))
 		# 	exit()
 
 		# получаем 0x02 пакет
-		buffer = self.recv_raw()
-		length = VarInt.read(buffer)
+		buffer = Buffer(self.socket.recv(1024))
+		_ = VarInt.read(buffer)
 		id = VarInt.read(buffer)
 
 		if id == 0x02:
 			player.UUID = UUID.read(buffer)
+		else:
+			print(hex(id), 'другой пакет (ожидался 0x02)')
+			print(buffer.bytes)
+			exit()
 
 		print('Вход выполнен')
 
+		Thread(target=self.recv_raw,daemon=True).start()
 		Thread(target=self.recv,daemon=True).start()
 		Thread(target=self.main,daemon=True).start()
 		sleep(0.5)
@@ -156,49 +162,57 @@ class Main:
 	# https://wiki.vg/index.php?title=Protocol&oldid=17499#Death_Combat_Event
 	# https://wiki.vg/index.php?title=Protocol&oldid=17499#Respawn
 
+	size = 1024**3
+	buffer = Buffer()
+
 	def recv_raw(self):
-		try:
-			# max 2097151 bytes 1024**2*2
-			data = self.socket.recv(1024**2*2)
-			# print(data)
-		except ConnectionAbortedError:
-			raise Exception('Соединение разорвано')
+		while self.active:
+			# max 2097151 bytes
+			data = self.socket.recv(self.size)
 
-		if not data:
-			raise Exception('Сервер перестал отвечать')
+			if len(self.buffer) == 0:
+				raise Exception('Сервер перестал отвечать')
 
-		buffer = Buffer(data)
-		buffer.seek(0)
-		return buffer
+			self.buffer.seek(0, True)
+			self.buffer.write(data)
+
+	def recv(self):
+		while self.active:
+			self.buffer.seek(0)
+			length = VarInt.read(self.buffer)
+			print(length)
+			while len(self.buffer) < length:
+				sleep(0.01)
+
+			self.buffer.seek(0)
+			_ = VarInt.read(self.buffer)
+			buffer = Buffer(self.buffer.read(length))
+			data = self.buffer.read()
+			self.buffer = Buffer(data)
+			self.queue.put(buffer)
 
 	def update(self):
 		while self.active:
 			self.send(0x14, True)
 			sleep(1)
 
-	def recv(self):
-		while self.active:
-			try:
-				buffer = self.recv_raw()
-			except timeout:
-				pass
-			except Exception as e:
-				self.active = False
-				raise e
-			else:
-				self.queue.put(buffer)
-
 	def main(self):
 		while self.active:
 			try:
 				buffer = self.queue.get()
-				length, id, data = self.read(buffer)
+				id, data = self.read(buffer)
+
+				# 0x26 join player
+				# 0x18 Plugin Message
+				# 0x0E Server Difficulty
+				# 0x48 Held Item Change
+				# 0x66 Declare Recipes
 
 				if id == 0x21:
 					# https://wiki.vg/index.php?title=Protocol&oldid=17499#Keep_Alive_.28clientbound.29
 					# https://wiki.vg/index.php?title=Protocol&oldid=17499#Keep_Alive_.28serverbound.29
 					self.send(0x0F, data[0])
-					# print('keep Alive ID:', KeepAliveID)
+					print('keep Alive ID:', data[0])
 
 				# elif PacketID == 0x00:
 				# 	Player.EntityID = VarInt.read(buffer)
@@ -299,9 +313,17 @@ class Main:
 			# except (ValueError, timeout, struct.error):
 			# 	continue
 
+			except zlib.error as e:
+				# print(e)
+				pass
+
+			except (ConnectionAbortedError, ConnectionResetError) as e:
+				# print(e)
+				pass
+
 			except Exception as e:
-				# self.active = False
 				# raise e
-				print(e)
+				print('выход')
+				self.active = False
 
 			self.queue.task_done()

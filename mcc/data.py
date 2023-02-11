@@ -43,14 +43,6 @@ class Buffer:
 		return ' '.join(["%02X" % b for b in self.bytes_.getvalue()])
 
 
-class Packet(list):
-	def __init__(self, _id, *args, **kwargs):
-		super().__init__(args, **kwargs)
-		self.id = _id
-		
-	def to_buffer(self, state='play'):
-		return to_buffer(self.id, self, state=state)
-
 def to_buffer(_id, args, state='play'):
 	levelformat = dataformat['send'][state]
 
