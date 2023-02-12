@@ -17,6 +17,7 @@ def send(self, id, *args, state='play'):
 			buffer.pack(VarInt, 0)
 	buffer.pack(VarInt, len(buffer))
 
+	# print(buffer.bytes)
 	self.socket.send(buffer.bytes)
 
 size = 1024**3*2
